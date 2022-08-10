@@ -10,17 +10,26 @@ unsigned long built_prev_millis = 0;
 unsigned long alarm_buzzer1_prev_millis = 0;
 unsigned long alarm_buzzer2_prev_millis = 0;
 
-unsigned long msg_duration = 10000;
-unsigned long alarm_duration = 10000;
+unsigned long msg_buzzer1_prev_millis = 0;
+unsigned long msg_buzzer2_prev_millis = 0;
 
-unsigned long alarm_buzzer1_duration = 500;
-unsigned long alarm_buzzer2_duration = 100;
+unsigned long msg_duration = 60000;
+unsigned long alarm_duration = 120000;
+unsigned long lights_duration = 240000;
+
+unsigned long alarm_buzzer1_duration = 125;
+unsigned long alarm_buzzer2_duration = 125;
+
+unsigned long msg_buzzer1_duration = 500;
+unsigned long msg_buzzer2_duration = 1500;
+
 
 unsigned long msg_start = 0;
 unsigned long alarm_start = 0;
+unsigned long lights_start = 0;
 
 unsigned long lastDebounceTime = 0;
-unsigned long debounceDelay = 50;
+unsigned long debounceDelay = 25;
 
 bool alarm_started = false;
 bool msg_started = false;
@@ -43,45 +52,48 @@ int lights_btn_pin = 10;
 int msg_btn_pin = 12;
 
 
-int lights_led_state = LOW;         // the current state of the output pin
-int lights_button_state = LOW;             // the current reading from the input pin
-int lights_button_last_state = 1; // 1 is OFF
+int lights_led_state = LOW;        // the current state of the output pin
+int lights_button_state = LOW;     // the current reading from the input pin
+int lights_button_last_state = 1;  // 1 is OFF
 
 // Alarm
-int alarm_led_state = LOW;         // the current state of the output pin
-int alarm_button_state = LOW;             // the current reading from the input pin
-int alarm_button_last_state = 1; // 1 is OFF
+int alarm_led_state = LOW;        // the current state of the output pin
+int alarm_button_state = LOW;     // the current reading from the input pin
+int alarm_button_last_state = 1;  // 1 is OFF
 
 // Msg
-int msg_led_state = LOW;         // the current state of the output pin
-int msg_button_state = LOW;             // the current reading from the input pin
-int msg_button_last_state = 1; // 1 is OFF
+int msg_led_state = LOW;        // the current state of the output pin
+int msg_button_state = LOW;     // the current reading from the input pin
+int msg_button_last_state = 1;  // 1 is OFF
 
 // Builtin led
 int built_led_state = LOW;
 
 // Buzzers
-int buzzer1_pin = 6;
-int buzzer2_pin = 7;
+int buzzer1_pin = 5;
+int buzzer2_pin = 6;
+
+bool buzzer1_state = false;
+bool buzzer2_state = false;
 
 
 void setup() {
-  Serial.begin( 9600 );
+  Serial.begin(9600);
 
   // Leds
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode (msg_led_pin, OUTPUT);
-  pinMode (lights_led_pin, OUTPUT);
-  pinMode (alarm_led_pin, OUTPUT);
+  pinMode(msg_led_pin, OUTPUT);
+  pinMode(lights_led_pin, OUTPUT);
+  pinMode(alarm_led_pin, OUTPUT);
 
   // Buttons
-  pinMode(alarm_btn_pin, INPUT_PULLUP );
-  pinMode(msg_btn_pin, INPUT_PULLUP );
-  pinMode(lights_btn_pin, INPUT_PULLUP );
+  pinMode(alarm_btn_pin, INPUT_PULLUP);
+  pinMode(msg_btn_pin, INPUT_PULLUP);
+  pinMode(lights_btn_pin, INPUT_PULLUP);
 
   // Buzzers
-  //pinMode(buzzer1_pin, OUTPUT );
-  //pinMode(buzzer2_pin, OUTPUT );
+  pinMode(buzzer1_pin, OUTPUT );
+  pinMode(buzzer2_pin, OUTPUT );
 }
 
 // the loop function runs over and over again forever
@@ -89,10 +101,14 @@ void loop() {
 
   currentMillis = millis();
 
-  built_led();
-  alarm(); 
+  //built_led();
+  alarm();
   msg();
   lights();
+
+  if (!msg_started && !alarm_started) {
+    stopBuzzer();
+  }
 }
 
 /*
@@ -113,7 +129,7 @@ void built_led() {
 void alarm() {
   int reading = digitalRead(alarm_btn_pin);
 
-   if (reading != alarm_button_last_state) {
+  if (reading != alarm_button_last_state) {
     Serial.println("alarm btn pressed");
     // reset the debouncing timer
     lastDebounceTime = millis();
@@ -125,12 +141,18 @@ void alarm() {
       // only toggle the LED if the new button state is LOW - pressed
       if (alarm_button_state == LOW) {
         alarm_started = !alarm_started;
-        alarm_start = millis();
+        alarm_start = currentMillis;
+
+        // reset buzzer state
+        buzzer1_state = true;
+        buzzer2_state = false;
+        alarm_buzzer1_prev_millis = currentMillis;
+        alarm_buzzer2_prev_millis = currentMillis;
       }
     }
   }
 
-  if (alarm_started == true) {
+  if (alarm_started) {
     if (currentMillis - alarm_start <= alarm_duration) {
 
       if ((currentMillis - alarm_prev_millis) >= alarm_led_blink) {
@@ -140,26 +162,14 @@ void alarm() {
         digitalWrite(alarm_led_pin, alarm_led_state);
       }
 
-      // Buzzer
-      /*
-      if (currentMillis - alarm_buzzer1_prev_millis <= alarm_buzzer1_duration) {
-        tone(buzzer1_pin, 1000);
-      } else {
-        alarm_buzzer2_prev_millis = currentMillis;
-      }
-      
-      
-      if (currentMillis - alarm_buzzer2_prev_millis <= alarm_buzzer2_duration) {
-        tone(buzzer2_pin, 500);
-      } else {
-        alarm_buzzer1_prev_millis = currentMillis;
-      }
-      */
-      
+      alarmBuzzer();
     } else {
-        alarm_started = false;
+      alarm_started = false;
     }
-  } else {
+  }
+
+  if (alarm_started == false) {
+    // Stop everithing
     digitalWrite(alarm_led_pin, LOW);
   }
 
@@ -173,7 +183,7 @@ void msg() {
 
   int reading = digitalRead(msg_btn_pin);
 
-   if (reading != msg_button_last_state) {
+  if (reading != msg_button_last_state) {
     Serial.println("msg btn pressed");
     // reset the debouncing timer
     lastDebounceTime = millis();
@@ -185,12 +195,20 @@ void msg() {
       // only toggle the LED if the new button state is LOW - pressed
       if (msg_button_state == LOW) {
         msg_started = !msg_started;
-        msg_start = millis();
+        // reset state, led on on start
+        msg_led_state = false;
+        msg_start = currentMillis;
+
+        // reset buzzer state
+        buzzer1_state = true;
+        buzzer2_state = false;
+        msg_buzzer1_prev_millis = currentMillis;
+        msg_buzzer2_prev_millis = currentMillis;
       }
     }
   }
 
-  if (msg_started == true) {
+  if (msg_started) {
     if (currentMillis - msg_start <= msg_duration) {
 
       if ((currentMillis - msg_prev_millis) >= msg_led_blink) {
@@ -199,10 +217,14 @@ void msg() {
         msg_led_state = !msg_led_state;
         digitalWrite(msg_led_pin, msg_led_state);
       }
+
+      msgBuzzer();
     } else {
-        msg_started = false;
+      msg_started = false;
     }
-  } else {
+  } 
+
+  if (msg_started == false) {
     digitalWrite(msg_led_pin, LOW);
   }
 
@@ -230,11 +252,60 @@ void lights() {
       // only toggle the LED if the new button state is LOW - pressed
       if (lights_button_state == LOW) {
         lights_led_state = !lights_led_state;
+        lights_start = millis();
       }
     }
   }
 
   // set the LED:
-  digitalWrite(lights_led_pin, lights_led_state);
+  if (currentMillis - lights_start <= lights_duration) {
+    digitalWrite(lights_led_pin, lights_led_state);
+  }
+
   lights_button_last_state = reading;
+}
+
+void alarmBuzzer() {
+  // Buzzer
+  if (buzzer1_state == true && (currentMillis - alarm_buzzer1_prev_millis <= alarm_buzzer1_duration)) {
+    tone(buzzer1_pin, 500);
+    alarm_buzzer2_prev_millis = currentMillis;
+  } else {
+    noTone(buzzer1_pin);
+    buzzer1_state = false;
+    buzzer2_state = true;
+  }
+
+  if (buzzer2_state == true && (currentMillis - alarm_buzzer2_prev_millis <= alarm_buzzer2_duration)) {
+    tone(buzzer2_pin, 500);
+    alarm_buzzer1_prev_millis = currentMillis;
+  } else {
+    noTone(buzzer2_pin);
+    buzzer1_state = true;
+    buzzer2_state = false;
+  }
+}
+
+void msgBuzzer() {
+  // Buzzer
+  if ((buzzer1_state == true) && (currentMillis - msg_buzzer1_prev_millis <= msg_buzzer1_duration)) {
+    tone(buzzer1_pin, 500);
+    msg_buzzer2_prev_millis = currentMillis;
+  } else {
+    noTone(buzzer1_pin);
+    buzzer1_state = false;
+    buzzer2_state = true;
+  }
+
+  if (buzzer2_state == true && (currentMillis - msg_buzzer2_prev_millis <= msg_buzzer2_duration)) {
+    msg_buzzer1_prev_millis = currentMillis;
+  } else {
+    buzzer1_state = true;
+    buzzer2_state = false;
+  }
+}
+
+void stopBuzzer() {
+  noTone(buzzer1_pin);
+  noTone(buzzer2_pin);
 }
